@@ -27,12 +27,6 @@ void ethernet_in(buf_t *buf)
             buf_remove_header(buf,14);
             ip_in(buf);
             break;
-        case NET_PROTOCOL_ICMP:
-            break;
-        case NET_PROTOCOL_UDP:
-            break;
-        case NET_PROTOCOL_TCP:
-            break;
         default:
             break;
     }
