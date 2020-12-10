@@ -2,7 +2,7 @@ SRC=../src/
 
 CC=gcc
 
-LFLAG=-lpcap -I../include/
+LFLAG=-lpcap -I../include/ -g
 
 test_icmp:
 	$(CC) icmp_test.c $(SRC)ethernet.c $(SRC)arp.c $(SRC)ip.c $(SRC)icmp.c faker/udp.c faker/driver.c global.c $(SRC)utils.c -o icmp_test $(LFLAG)

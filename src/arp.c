@@ -5,6 +5,9 @@
 #include <string.h>
 #include <stdio.h>
 
+//设置ARP表项超时时间为60s
+#define MAX_TIMEOUT 60
+
 /**
  * @brief 初始的arp包
  * 
@@ -45,7 +48,44 @@ arp_buf_t arp_buf;
 void arp_update(uint8_t *ip, uint8_t *mac, arp_state_t state)
 {
     // TODO
-
+    int maxIndex = 0;
+    time_t now_time = time(&now_time);
+    double maxTimeApart = difftime(now_time,arp_table[0].timeout);
+    //查看是否超时
+    for (int i = 0; i < ARP_MAX_ENTRY; i++){
+        double timeApart = difftime(now_time,arp_table[i].timeout);
+        if(timeApart > MAX_TIMEOUT){
+            arp_table[i].state = ARP_INVALID;
+        }
+        //当前超时时间大于已知最大超时时间
+        if(timeApart > maxTimeApart){
+            maxIndex = i;
+        }
+    }
+    //查看是否存在ARP_INVALID，若存在则直接使用
+    for (int i = 0; i < ARP_MAX_ENTRY; i++){
+        if(arp_table[i].state == ARP_INVALID){
+            for(int j = 0; j < NET_IP_LEN; j++){
+                arp_table[i].ip[j] = ip[j];
+            }
+            for(int j = 0; j < NET_MAC_LEN; j++){
+                arp_table[i].mac[j] = mac[j];
+            }
+            arp_table[i].state = ARP_VALID;
+            arp_table[i].timeout = now_time;
+            return;
+        }
+    }
+    //将超时时间最长的表项替换
+    for(int j = 0; j < NET_IP_LEN; j++){
+        arp_table[maxIndex].ip[j] = ip[j];
+    }
+    for(int j = 0; j < NET_MAC_LEN; j++){
+        arp_table[maxIndex].mac[j] = mac[j];
+    }
+    arp_table[maxIndex].state = ARP_VALID;
+    arp_table[maxIndex].timeout = now_time;
+    return;
 }
 
 /**
@@ -73,8 +113,76 @@ static uint8_t *arp_lookup(uint8_t *ip)
 static void arp_req(uint8_t *target_ip)
 {
     // TODO
-
+    net_protocol_t protocol = NET_PROTOCOL_ARP;
+    int arp_type = ARP_REQUEST;
+    uint8_t eth_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    uint8_t arp_mac[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    buf_init(&txbuf,28);
+    //硬件类型
+    txbuf.data[0] = arp_init_pkt.hw_type % 0x100;
+    txbuf.data[1] = arp_init_pkt.hw_type / 0x100;
+    //上层协议类型
+    txbuf.data[2] = arp_init_pkt.pro_type % 0x100;
+    txbuf.data[3] = arp_init_pkt.pro_type / 0x100;
+    //MAC地址长度
+    txbuf.data[4] = arp_init_pkt.hw_len;
+    //IP地址长度
+    txbuf.data[5] = arp_init_pkt.pro_len;
+    //操作类型
+    txbuf.data[6]= arp_type / 0x100;
+    txbuf.data[7] = arp_type % 0x100;
+    //设置源mac和目的mac
+    for(int i = 0 ; i < NET_MAC_LEN; i++){
+        txbuf.data[8 + i] = net_if_mac[i];
+        txbuf.data[18 + i] = arp_mac[i];
+    }
+    //设置源ip和目的ip
+    for(int i = 0 ; i < NET_IP_LEN; i++){
+        txbuf.data[14 + i] = net_if_ip[i];
+        txbuf.data[24 + i] = target_ip[i];
+    }
+    //发送ARP报文
+    ethernet_out(&txbuf,eth_mac,protocol);
 }
+
+/**
+ * @brief 发送一个arp响应
+ * 
+ * @param dst_mac 目的mac
+ * @param dst_mac 目的ip
+ */
+static void arp_reply(uint8_t *dst_mac,uint8_t *dst_ip){
+    // TODO
+    net_protocol_t protocol = NET_PROTOCOL_ARP;
+    int arp_type = ARP_REPLY;
+    buf_init(&txbuf,28);
+    //硬件类型
+    txbuf.data[0] = arp_init_pkt.hw_type % 0x100;
+    txbuf.data[1] = arp_init_pkt.hw_type / 0x100;
+    //上层协议类型
+    txbuf.data[2] = arp_init_pkt.pro_type % 0x100;
+    txbuf.data[3] = arp_init_pkt.pro_type / 0x100;
+    //MAC地址长度
+    txbuf.data[4] = arp_init_pkt.hw_len;
+    //IP地址长度
+    txbuf.data[5] = arp_init_pkt.pro_len;
+    //操作类型
+    txbuf.data[6]= arp_type / 0x100;
+    txbuf.data[7] = arp_type % 0x100;
+    //设置源mac和目的mac
+    for(int i = 0 ; i < NET_MAC_LEN; i++){
+        txbuf.data[8 + i] = net_if_mac[i];
+        txbuf.data[18 + i] = dst_mac[i];
+    }
+    //设置源ip和目的ip
+    for(int i = 0 ; i < NET_IP_LEN; i++){
+        txbuf.data[14 + i] = net_if_ip[i];
+        txbuf.data[24 + i] = dst_ip[i];
+    }
+    //发送ARP reply报文
+    ethernet_out(&txbuf,dst_mac,protocol);
+}
+
 
 /**
  * @brief 处理一个收到的数据包
@@ -95,8 +203,42 @@ static void arp_req(uint8_t *target_ip)
  */
 void arp_in(buf_t *buf)
 {
-    // TODO
-    
+    uint8_t hard_type = ((buf->data[0] * 0x100) + buf->data[1]);
+    net_protocol_t protocol_type = ((buf->data[2] * 0x100) + buf->data[3]);
+    uint8_t mac_len = buf->data[4];
+    uint8_t ip_len = buf->data[5];
+    uint8_t action_type = buf->data[6] * 0x100 + buf->data[7];
+
+    // 获取IP和MAC地址
+    uint8_t dst_arp_mac[NET_MAC_LEN];
+    uint8_t dst_arp_ip[NET_IP_LEN];
+    uint8_t src_arp_mac[NET_MAC_LEN];
+    uint8_t src_arp_ip[NET_IP_LEN];
+    for(int i = 0; i < NET_MAC_LEN; i++){
+        src_arp_mac[i] = buf->data[8 + i];
+        dst_arp_mac[i] = buf->data[18 + i];
+    }
+    for(int i = 0; i < NET_IP_LEN; i++){
+        src_arp_ip[i] = buf->data[14 + i];
+        dst_arp_ip[i] = buf->data[24 + i];
+    }
+
+    arp_update(src_arp_ip,src_arp_mac,ARP_VALID);
+
+    //无效--即队列为空
+    if(arp_buf.valid == 0){
+        //若为请求报文
+        if(action_type == ARP_REQUEST && memcmp(dst_arp_ip, net_if_ip, NET_IP_LEN) == 0 ){
+            arp_reply(src_arp_mac,src_arp_ip);
+        }
+    }
+    else{
+        uint8_t* mac = arp_lookup(arp_buf.ip);
+        if(mac != NULL){
+            arp_buf.valid = 0;
+            ethernet_out(&arp_buf.buf,mac,arp_buf.protocol);
+        }
+    }
 }
 
 /**
@@ -113,7 +255,19 @@ void arp_in(buf_t *buf)
 void arp_out(buf_t *buf, uint8_t *ip, net_protocol_t protocol)
 {
     // TODO
-
+    uint8_t* mac = arp_lookup(ip);
+    if(mac != NULL){
+        ethernet_out(buf,mac,protocol);
+    }
+    else{
+        arp_buf.buf = *buf;
+        arp_buf.valid = 1;
+        for(int i = 0; i < NET_IP_LEN; i++){
+            arp_buf.ip[i] = ip[i];
+        }
+        arp_buf.protocol = protocol;
+        arp_req(ip);
+    }
 }
 
 /**
