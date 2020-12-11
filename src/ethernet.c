@@ -17,7 +17,8 @@
 void ethernet_in(buf_t *buf)
 {
     // TODO
-    net_protocol_t protocol = buf->data[12] * 0x100 + buf->data[13];
+    ether_hdr_t * ether_hdr = (ether_hdr_t *) buf->data;
+    net_protocol_t protocol =  swap16(ether_hdr->protocol);
     switch (protocol){
         case NET_PROTOCOL_ARP:
             buf_remove_header(buf,14);
@@ -45,12 +46,11 @@ void ethernet_out(buf_t *buf, const uint8_t *mac, net_protocol_t protocol)
 {
     // TODO
     buf_add_header(buf,14);
-    for(int i = 0; i < 6; i++){
-        buf->data[i] = mac[i];
-        buf->data[6 + i] = net_if_mac[i];
-    }
-    buf->data[12] = protocol / 0x100;
-    buf->data[13] = protocol % 0x100;
+    ether_hdr_t * ether_hdr = (ether_hdr_t *) buf->data;
+    //填写目的MAC、源MAC、协议
+    memcpy(ether_hdr->dest,mac,NET_MAC_LEN);
+    memcpy(ether_hdr->src,net_if_mac,NET_MAC_LEN);
+    ether_hdr->protocol = swap16(protocol);
     driver_send(buf);
 }
 
