@@ -5,9 +5,6 @@
 #include <string.h>
 #include <stdio.h>
 
-//设置ARP表项超时时间为60s
-#define MAX_TIMEOUT 60
-
 /**
  * @brief 初始的arp包
  * 
@@ -54,9 +51,9 @@ void arp_update(uint8_t *ip, uint8_t *mac, arp_state_t state)
     //查看是否超时
     for (int i = 0; i < ARP_MAX_ENTRY; i++){
         double timeApart = difftime(now_time,arp_table[i].timeout);
-        if(timeApart > MAX_TIMEOUT){
+        if(timeApart > ARP_TIMEOUT_SEC){
             arp_table[i].state = ARP_INVALID;
-        }
+        } 
         //当前超时时间大于已知最大超时时间
         if(timeApart > maxTimeApart){
             maxIndex = i;
