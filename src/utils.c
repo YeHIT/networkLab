@@ -4,6 +4,7 @@
 #include <string.h>
 #define IPTOSBUFFERS 12
 
+#define swap16(x) ((((x)&0xFF) << 8) | (((x) >> 8) & 0xFF)) //为16位数据交换大小端
 /**
  * @brief ip转字符串
  * 
@@ -82,6 +83,17 @@ void buf_copy(buf_t *dst, buf_t *src)
  */
 uint16_t checksum16(uint16_t *buf, int len)
 {
+    int sum = 0;
     // TODO
-        
+    for(int i = 0 ; i < len; i++){
+        sum += swap16(buf[i]);
+    }
+    //进位加到低16位
+    sum = (sum & 0xffff) + (sum >> 16);
+    //加上最后的进位
+    sum += (sum >> 16);
+    //取反
+    sum = ~( sum | 0xffff0000);
+    return sum;
+    
 }

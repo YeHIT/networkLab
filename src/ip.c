@@ -4,6 +4,8 @@
 #include "udp.h"
 #include <string.h>
 
+#define MAX_LIVE_TIME 64
+int global_id = 0;
 /**
  * @brief 处理一个收到的数据包
  *        你首先需要做报头检查，检查项包括：版本号、总长度、首部长度等。
@@ -24,7 +26,46 @@
 void ip_in(buf_t *buf)
 {
     // TODO 
-
+    ip_hdr_t *ip_hdr = (ip_hdr_t *) buf->data;
+    uint16_t total_len = swap16(ip_hdr->total_len);
+    uint16_t id = swap16(ip_hdr->id);
+    uint16_t flags_fragment = swap16(ip_hdr->flags_fragment);
+    uint8_t hdr_len = ip_hdr->hdr_len * IP_HDR_LEN_PER_BYTE;
+    //报头检查
+    if(ip_hdr->version != IP_VERSION_4
+    || (hdr_len < 20 || hdr_len > 60)
+    || total_len > 65535){
+        return;
+    }
+    
+    uint16_t checksum = swap16(ip_hdr->hdr_checksum);
+    ip_hdr->hdr_checksum = 0;
+    //总长度大于分片长度且DF分片位为1
+    if(total_len - hdr_len > ETHERNET_MTU && (flags_fragment & 1) == 1){
+        return;
+    }
+    //若自带的检验和同计算出的检验和不同则丢弃
+    if(checksum != checksum16((uint16_t *)buf->data , hdr_len / 2 ) ){
+        return;
+    }
+    //若目的IP不为本机IP则不处理
+    if( memcmp(ip_hdr->dest_ip, net_if_ip, NET_IP_LEN) != 0){
+        return;
+    }
+    switch(ip_hdr->protocol){
+        case NET_PROTOCOL_UDP:
+            buf_remove_header(buf,hdr_len);
+            udp_in(buf,ip_hdr->src_ip);
+            break;
+        case NET_PROTOCOL_ICMP:
+            buf_remove_header(buf,hdr_len);
+            icmp_in(buf,ip_hdr->src_ip);
+            break;
+        default:
+            ip_hdr->hdr_checksum = swap16(checksum);
+            icmp_unreachable(buf,ip_hdr->src_ip,ICMP_CODE_PROTOCOL_UNREACH);
+            break;
+    }
 }
 
 /**
@@ -44,7 +85,27 @@ void ip_in(buf_t *buf)
 void ip_fragment_out(buf_t *buf, uint8_t *ip, net_protocol_t protocol, int id, uint16_t offset, int mf)
 {
     // TODO
-    
+    buf_add_header(buf,20);
+    ip_hdr_t *ip_hdr = (ip_hdr_t *) buf->data;
+    ip_hdr->version = IP_VERSION_4;                                         //协议版本
+    ip_hdr->hdr_len = 5;                                                    //首部长度
+    ip_hdr->tos = 0;                                                        //区分服务
+    //若没有分片则总长度即为buf长度
+    if(mf == 0){
+        ip_hdr->total_len = swap16(buf->len);                               //总长度
+    }
+    else{
+        ip_hdr->total_len = swap16(ETHERNET_MTU);                           //总长度  
+    }
+    ip_hdr->id = swap16(id);                                                //标识
+    ip_hdr->flags_fragment = swap16(offset >> 3 | mf << 13);                //标志和片偏移
+    ip_hdr->ttl = MAX_LIVE_TIME;                                            //生存时间
+    ip_hdr->protocol = protocol;                                            //协议
+    memcpy(ip_hdr->src_ip,net_if_ip,NET_IP_LEN);                            //源地址
+    memcpy(ip_hdr->dest_ip,ip,NET_IP_LEN);                                  //目的地址
+    ip_hdr->hdr_checksum = 0;
+    ip_hdr->hdr_checksum = swap16(checksum16((uint16_t *)buf->data,10));    //首部检验和
+    arp_out(buf,ip,NET_PROTOCOL_IP);
 }
 
 /**
@@ -68,5 +129,17 @@ void ip_fragment_out(buf_t *buf, uint8_t *ip, net_protocol_t protocol, int id, u
 void ip_out(buf_t *buf, uint8_t *ip, net_protocol_t protocol)
 {
     // TODO 
-    
+    int id = global_id;
+    uint16_t offset = 0;
+    while(buf->len - 20 > ETHERNET_MTU){
+        buf_init(&txbuf,ETHERNET_MTU - 20);
+        txbuf.data = buf->data;
+        ip_fragment_out(&txbuf,ip,protocol,id,offset,1);
+        buf_remove_header(buf,ETHERNET_MTU - 20);
+        offset += ETHERNET_MTU - 20;
+    }
+    buf_init(&txbuf,buf->len);
+    txbuf.data = buf->data;
+    ip_fragment_out(&txbuf,ip,protocol,id,offset,0);
+    global_id++;
 }
