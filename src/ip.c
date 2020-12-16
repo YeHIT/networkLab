@@ -31,6 +31,8 @@ void ip_in(buf_t *buf)
     uint16_t id = swap16(ip_hdr->id);
     uint16_t flags_fragment = swap16(ip_hdr->flags_fragment);
     uint8_t hdr_len = ip_hdr->hdr_len * IP_HDR_LEN_PER_BYTE;
+    uint8_t src_ip[NET_IP_LEN];
+    memcpy(src_ip,ip_hdr->src_ip,NET_IP_LEN);
     //报头检查
     if(ip_hdr->version != IP_VERSION_4
     || (hdr_len < 20 || hdr_len > 60)
@@ -55,15 +57,15 @@ void ip_in(buf_t *buf)
     switch(ip_hdr->protocol){
         case NET_PROTOCOL_UDP:
             buf_remove_header(buf,hdr_len);
-            udp_in(buf,ip_hdr->src_ip);
+            udp_in(buf,src_ip);
             break;
         case NET_PROTOCOL_ICMP:
             buf_remove_header(buf,hdr_len);
-            icmp_in(buf,ip_hdr->src_ip);
+            icmp_in(buf,src_ip);
             break;
         default:
             ip_hdr->hdr_checksum = swap16(checksum);
-            icmp_unreachable(buf,ip_hdr->src_ip,ICMP_CODE_PROTOCOL_UNREACH);
+            icmp_unreachable(buf,src_ip,ICMP_CODE_PROTOCOL_UNREACH);
             break;
     }
 }
