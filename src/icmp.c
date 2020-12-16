@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdio.h>
 
+static int global_seq = 0;
 /**
  * @brief 处理一个收到的数据包
  *        你首先要检查ICMP报头长度是否小于icmp头部长度
@@ -20,6 +21,26 @@
 void icmp_in(buf_t *buf, uint8_t *src_ip)
 {
     // TODO
+    icmp_hdr_t * icmp_hdr = (icmp_hdr_t *) buf->data;
+    //检查ICMP报文长度是否小于ICMP头部长度
+    if(buf->len < sizeof(ip_hdr_t)){
+        return;
+    }
+    //判断是否为回显请求
+    if(icmp_hdr->type == ICMP_TYPE_ECHO_REQUEST && icmp_hdr->code == 0){
+        global_seq++;
+        buf_init(&txbuf, buf->len);
+        //将原数据报的数据拷贝进要发送的数据报中
+        memcpy(txbuf.data + sizeof(icmp_hdr_t),buf->data + sizeof(icmp_hdr_t),buf->len); 
+        icmp_hdr_t * icmp_hdr = (icmp_hdr_t *) txbuf.data;
+        icmp_hdr->type = ICMP_TYPE_ECHO_REPLY;
+        icmp_hdr->code = 00;
+        icmp_hdr->checksum = swap16(00);
+        icmp_hdr->id = swap16(global_seq);
+        icmp_hdr->seq = swap16(global_seq);
+        icmp_hdr->checksum = swap16(checksum16((uint16_t *) (txbuf.data), txbuf.len / 2));
+        ip_out(&txbuf,src_ip,NET_PROTOCOL_ICMP);
+    }
 }
 
 /**
@@ -36,5 +57,18 @@ void icmp_in(buf_t *buf, uint8_t *src_ip)
 void icmp_unreachable(buf_t *recv_buf, uint8_t *src_ip, icmp_code_t code)
 {
     // TODO
-    
+    //总长度为ICMP头部 + IP头部 + 原始IP数据报中的前8字节
+    int total_length = sizeof(icmp_hdr_t) + sizeof(ip_hdr_t) + 8;
+    buf_init(&txbuf, total_length);
+    //拷贝原数据报的IP头及数据报中的前8字节
+    memcpy(txbuf.data + sizeof(icmp_hdr_t),recv_buf->data,sizeof(ip_hdr_t) + 8); 
+    //设置ICMP报头
+    icmp_hdr_t * icmp_hdr = (icmp_hdr_t *) txbuf.data ;
+    icmp_hdr->type = ICMP_TYPE_UNREACH;
+    icmp_hdr->code = code;
+    icmp_hdr->id = swap16(00);
+    icmp_hdr->seq = swap16(00);
+    icmp_hdr->checksum = 0;
+    icmp_hdr->checksum = swap16(checksum16((uint16_t *) txbuf.data  , total_length / 2));
+    ip_out(&txbuf,src_ip,NET_PROTOCOL_ICMP);
 }

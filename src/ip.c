@@ -5,7 +5,7 @@
 #include <string.h>
 
 #define MAX_LIVE_TIME 64
-int global_id = 0;
+static int global_id = 0;
 /**
  * @brief 处理一个收到的数据包
  *        你首先需要做报头检查，检查项包括：版本号、总长度、首部长度等。
@@ -37,7 +37,7 @@ void ip_in(buf_t *buf)
     || total_len > 65535){
         return;
     }
-    
+    //缓存校验和
     uint16_t checksum = swap16(ip_hdr->hdr_checksum);
     ip_hdr->hdr_checksum = 0;
     //总长度大于分片长度且DF分片位为1
@@ -133,13 +133,13 @@ void ip_out(buf_t *buf, uint8_t *ip, net_protocol_t protocol)
     uint16_t offset = 0;
     while(buf->len - 20 > ETHERNET_MTU){
         buf_init(&txbuf,ETHERNET_MTU - 20);
-        txbuf.data = buf->data;
+        memcpy(txbuf.data,buf->data,buf->len);
         ip_fragment_out(&txbuf,ip,protocol,id,offset,1);
         buf_remove_header(buf,ETHERNET_MTU - 20);
         offset += ETHERNET_MTU - 20;
     }
     buf_init(&txbuf,buf->len);
-    txbuf.data = buf->data;
+    memcpy(txbuf.data,buf->data,buf->len);
     ip_fragment_out(&txbuf,ip,protocol,id,offset,0);
     global_id++;
 }

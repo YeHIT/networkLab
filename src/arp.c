@@ -224,9 +224,7 @@ void arp_out(buf_t *buf, uint8_t *ip, net_protocol_t protocol)
     else{
         arp_buf.buf = *buf;
         arp_buf.valid = 1;
-        for(int i = 0; i < NET_IP_LEN; i++){
-            arp_buf.ip[i] = ip[i];
-        }
+        memcpy(arp_buf.ip,ip,NET_IP_LEN);
         arp_buf.protocol = protocol;
         arp_req(ip);
     }

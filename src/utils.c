@@ -83,8 +83,8 @@ void buf_copy(buf_t *dst, buf_t *src)
  */
 uint16_t checksum16(uint16_t *buf, int len)
 {
-    int sum = 0;
     // TODO
+    int sum = 0;
     for(int i = 0 ; i < len; i++){
         sum += swap16(buf[i]);
     }
@@ -95,5 +95,4 @@ uint16_t checksum16(uint16_t *buf, int len)
     //取反
     sum = ~( sum | 0xffff0000);
     return sum;
-    
 }
