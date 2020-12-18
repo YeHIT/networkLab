@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 
+#define MAX_BUF_NUMBER 16
 /**
  * @brief 初始的arp包
  * 
@@ -28,7 +29,7 @@ arp_entry_t arp_table[ARP_MAX_ENTRY];
  * @brief 长度为1的arp分组队列，当等待arp回复时暂存未发送的数据包
  * 
  */
-arp_buf_t arp_buf;
+arp_buf_t arp_buf[MAX_BUF_NUMBER];
 
 /**
  * @brief 更新arp表
@@ -187,18 +188,22 @@ void arp_in(buf_t *buf)
     //根据发送者ip和mac更新arp表
     arp_update(arp_pkt->sender_ip,arp_pkt->sender_mac,ARP_VALID);
     //无效--即队列为空
-    if(arp_buf.valid == 0){
-        //若为请求报文
-        if(opcode == ARP_REQUEST && memcmp(arp_pkt->target_ip, net_if_ip, NET_IP_LEN) == 0 ){
-            //向请求方发送应答报文
-            arp_reply(arp_pkt->sender_mac,arp_pkt->sender_ip);
+    for (int i = 0; i < ARP_MAX_ENTRY; i++){
+        //因为是按序存储，所以找到valid为0的buf即可break。
+        if(arp_buf[i].valid == 0){
+            //若为请求报文
+            if(opcode == ARP_REQUEST && memcmp(arp_pkt->target_ip, net_if_ip, NET_IP_LEN) == 0 ){
+                //向请求方发送应答报文
+                arp_reply(arp_pkt->sender_mac,arp_pkt->sender_ip);
+            }
+            break;
         }
-    }
-    else{
-        uint8_t* mac = arp_lookup(arp_buf.ip);
-        if(mac != NULL){
-            arp_buf.valid = 0;
-            ethernet_out(&arp_buf.buf,mac,arp_buf.protocol);
+        else{
+            uint8_t* mac = arp_lookup(arp_buf[i].ip);
+            if(mac != NULL){
+                arp_buf[i].valid = 0;
+                ethernet_out(&arp_buf[i].buf,mac,arp_buf[i].protocol);
+            }
         }
     }
 }
@@ -222,10 +227,15 @@ void arp_out(buf_t *buf, uint8_t *ip, net_protocol_t protocol)
         ethernet_out(buf,mac,protocol);
     }
     else{
-        arp_buf.buf = *buf;
-        arp_buf.valid = 1;
-        memcpy(arp_buf.ip,ip,NET_IP_LEN);
-        arp_buf.protocol = protocol;
+        for (int i = 0; i < ARP_MAX_ENTRY; i++){
+            if(arp_buf[i].valid == 0){
+                buf_copy(&arp_buf[i].buf,buf);
+                arp_buf[i].valid = 1;
+                memcpy(arp_buf[i].ip,ip,NET_IP_LEN);
+                arp_buf[i].protocol = protocol;
+                break;
+            }
+        }
         arp_req(ip);
     }
 }
@@ -238,6 +248,7 @@ void arp_init()
 {
     for (int i = 0; i < ARP_MAX_ENTRY; i++)
         arp_table[i].state = ARP_INVALID;
-    arp_buf.valid = 0;
+    for (int i = 0; i < ARP_MAX_ENTRY; i++)
+        arp_buf[MAX_BUF_NUMBER].valid = 0;
     arp_req(net_if_ip);
 }

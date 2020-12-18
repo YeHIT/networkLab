@@ -162,7 +162,9 @@ void udp_out(buf_t *buf, uint16_t src_port, uint8_t *dest_ip, uint16_t dest_port
     udp_hdr->src_port = swap16(src_port);
     udp_hdr->dest_port = swap16(dest_port);
     udp_hdr->total_len = swap16(buf->len);
-    udp_hdr->checksum = swap16(udp_checksum(buf,net_if_ip,dest_ip));
+    udp_hdr->checksum = 0;
+    uint16_t checksum = udp_checksum(buf,net_if_ip,dest_ip);
+    udp_hdr->checksum = swap16(checksum);
     ip_out(buf,dest_ip,NET_PROTOCOL_UDP);
 }
 
