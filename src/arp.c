@@ -59,6 +59,7 @@ void arp_update(uint8_t *ip, uint8_t *mac, arp_state_t state)
         //当前超时时间大于已知最大超时时间，最大值下标更改
         if(timeApart > maxTimeApart){
             maxIndex = i;
+            maxTimeApart = timeApart;
         }
     }
     //查看是否存在ARP_INVALID，若存在则直接使用
